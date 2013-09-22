@@ -1,4 +1,9 @@
 /*
+ * HackRF port of rtl_fm
+ * Copyright (C) 2013 by Russell Hande <zefie@zefie.net>
+ *
+ * Original copyright/header as follows
+ *
  * rtl-sdr, turns your Realtek RTL2832 based DVB dongle into a SDR receiver
  * Copyright (C) 2012 by Steve Markgraf <steve@steve-m.de>
  * Copyright (C) 2012 by Hoernchen <la@tfc-server.de>
@@ -18,7 +23,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
 
 /*
  * written because people could not do real time
@@ -60,16 +64,16 @@
 #endif
 
 #include <pthread.h>
-//#include <libusb.h>
-
 #include <hackrf.h>
 
+#define DEFAULT_LNA_GAIN		24
+#define DEFAULT_VGA_GAIN		24
+
 #define DEFAULT_SAMPLE_RATE		24000
-#define DEFAULT_ASYNC_BUF_NUMBER	32
-#define DEFAULT_BUF_LENGTH		(1 * 16384)
-#define MAXIMUM_OVERSAMPLE		16
+#define DEFAULT_ASYNC_BUF_NUMBER	4
+#define DEFAULT_BUF_LENGTH		262144
+#define MAXIMUM_OVERSAMPLE		4
 #define MAXIMUM_BUF_LENGTH		(MAXIMUM_OVERSAMPLE * DEFAULT_BUF_LENGTH)
-#define AUTO_GAIN			24
 
 #define FREQUENCIES_LIMIT		1000
 
@@ -123,16 +127,15 @@ struct fm_state
 void usage(void)
 {
 	fprintf(stderr,
-		"hackrf_fm, a simple narrow band FM demodulator for RTL2832 based DVB-T receivers\n\n"
+		"hackrf_fm, a simple narrow band FM demodulator for the HackRF\n\n"
 		"Use:\thackrf_fm -f freq [-options] [filename]\n"
 		"\t-f frequency_to_tune_to [Hz]\n"
 		"\t (use multiple -f for scanning, requires squelch)\n"
 		"\t (ranges supported, -f 118M:137M:25k)\n"
 		"\t[-s sample_rate (default: 24k)]\n"
-		"\t[-d device_index (default: 0)]\n"
 		"\t[-g tuner_vga_gain (0-62) (default: 24)]\n"
 		"\t[-p tuner_lna_gain (0,8,16,24,32,40) (default: 24)]\n"
-		"\t[-a tuner_amp (default: 1)]\n"
+		"\t[-a tuner_amp (default: off)]\n"
 		"\t[-l squelch_level (default: 0/off)]\n"
 		"\t[-o oversampling (default: 1, 4 recommended)]\n"
 		"\t[-E sets lower edge tuning (default: center)]\n"
@@ -169,7 +172,6 @@ sighandler(int signum)
 		fprintf(stderr, "Signal caught, exiting!\n");
 		do_exit = 1;
 		hackrf_stop_rx(dev);
-		//rtlsdr_cancel_async(dev);
 		return TRUE;
 	}
 	return FALSE;
@@ -180,7 +182,6 @@ static void sighandler(int signum)
 	fprintf(stderr, "Signal caught, exiting!\n");
 	do_exit = 1;
 	hackrf_stop_rx(dev);
-	//rtlsdr_cancel_async(dev);
 }
 #endif
 
@@ -264,8 +265,8 @@ void low_pass_fir(struct fm_state *fm, unsigned char *buf, uint32_t len)
 		if (fm->prev_index < fm->downsample) {
 			continue;
 		}
-		fm->signal[i2]   = fm->now_r; //* fm->output_scale;
-		fm->signal[i2+1] = fm->now_j; //* fm->output_scale;
+		fm->signal[i2]   = fm->now_r; // * fm->output_scale;
+		fm->signal[i2+1] = fm->now_j; // * fm->output_scale;
 		fm->prev_index = 0;
 		fm->now_r = 0;
 		fm->now_j = 0;
@@ -631,43 +632,49 @@ void full_demod(struct fm_state *fm)
 		optimal_settings(fm, freq_next, 1);
 		fm->squelch_hits = fm->conseq_squelch + 1;  /* hair trigger */
 		/* wait for settling and flush buffer */
-		//usleep(5000);
+		usleep(5000);
 		//rtlsdr_read_sync(dev, NULL, 4096, NULL);
 	}
 }
 
-int i = 0;
+int rx_reads = 0;
 uint bytes = 0;
 
-void rx_callback(hackrf_transfer *transfer)
+int rx_callback(hackrf_transfer *transfer)
 {
 	struct fm_state *fm2 = transfer->rx_ctx;
-	if (do_exit) {
-		return;}
-	if (!fm2) {
-		return;}
-	i++;
-	bytes = (bytes + transfer->buffer_length);
-	fprintf(stderr, "Read %d: %d bytes (%d total)...\r",i,transfer->buffer_length, bytes);
+
+	if (do_exit)
+		return -1;
+
+	if (!fm2)
+		return -1;
+
+
+	rx_reads++;
+
+
+	bytes = (bytes + transfer->valid_length);
+	fprintf(stderr, "Read %d: %d bytes (%d total)...\r",rx_reads,transfer->valid_length, bytes);
+
 	pthread_rwlock_wrlock(&data_rw);
-	memcpy(fm2->buf, transfer->buffer, transfer->buffer_length);
-	fm2->buf_len = transfer->buffer_length;
+	memcpy(fm2->buf, transfer->buffer, transfer->valid_length);
+	fm2->buf_len = transfer->valid_length;
 	pthread_rwlock_unlock(&data_rw);
 	safe_cond_signal(&data_ready, &data_mutex);
-	/* single threaded uses 25% less CPU? */
-	//full_demod(fm2);
+	return 0;
 }
 
 static void *demod_thread_fn(void *arg)
 {
 	struct fm_state *fm2 = arg;
 	while (!do_exit) {
-//		safe_cond_wait(&data_ready, &data_mutex);
+		safe_cond_wait(&data_ready, &data_mutex);
 		full_demod(fm2);
+
 		if (fm2->exit_flag) {
 			do_exit = 1;
 			hackrf_stop_rx(dev);
-			//rtlsdr_cancel_async(dev);
 		}
 	}
 	return 0;
@@ -747,13 +754,12 @@ int main(int argc, char **argv)
 	struct fm_state fm; 
 	char *filename = NULL;
 	int r, opt, wb_mode = 0;
-	int i, gain = AUTO_GAIN; // tenths of a dB
+	int gain = DEFAULT_VGA_GAIN; // tenths of a dB
+	int lna_gain = DEFAULT_LNA_GAIN;
 	uint8_t *buffer;
-	uint32_t dev_index = 0;
-	int device_count;
-	int lna_gain = 24;
-	int tuner_amp = 1;
-//	char vendor[256], product[256], serial[256];
+	uint8_t board_id = BOARD_ID_INVALID;
+	char version[255 + 1];
+	int tuner_amp = 0;
 	fm_init(&fm);
 	pthread_cond_init(&data_ready, NULL);
 	pthread_rwlock_init(&data_rw, NULL);
@@ -761,9 +767,6 @@ int main(int argc, char **argv)
 
 	while ((opt = getopt(argc, argv, "d:f:g:s:b:l:o:t:r:p:a:EFA:NWMULRDC")) != -1) {
 		switch (opt) {
-		case 'd':
-			dev_index = atoi(optarg);
-			break;
 		case 'f':
 			if (fm.freq_len >= FREQUENCIES_LIMIT) {
 				break;}
@@ -782,7 +785,7 @@ int main(int argc, char **argv)
 			lna_gain = atoi(optarg);
 			break;
 		case 'a':
-			tuner_amp = atoi(optarg);
+			tuner_amp = 1;
 			break;
 		case 'l':
 			fm.squelch_level = (int)atof(optarg);
@@ -887,35 +890,34 @@ int main(int argc, char **argv)
 	ACTUAL_BUF_LENGTH = lcm_post[fm.post_downsample] * DEFAULT_BUF_LENGTH;
 	buffer = malloc(ACTUAL_BUF_LENGTH * sizeof(uint8_t));
 
-//	device_count = rtlsdr_get_device_count();
-	device_count = 1;
-	if (!device_count) {
-		fprintf(stderr, "No supported devices found.\n");
-		exit(1);
-	}
-
-	fprintf(stderr, "Found %d device(s):\n", device_count);
-/*
-	for (i = 0; i < device_count; i++) {
-		rtlsdr_get_device_usb_strings(i, vendor, product, serial);
-		fprintf(stderr, "  %d:  %s, %s, SN: %s\n", i, vendor, product, serial);
-	}
-	fprintf(stderr, "\n");
-*/
-
-	fprintf(stderr, "Using device %d: %s\n",
-		dev_index, hackrf_board_id_name(dev_index));
-
 	r = hackrf_init();
-	if (r < 0) {
+	if (r != HACKRF_SUCCESS) {
 		printf("hackrf_init() failed: %s (%d)\n", hackrf_error_name(r), r);
 		exit(1);
 	}
 	r = hackrf_open(&dev);
-	if (r < 0) {
+	if (r != HACKRF_SUCCESS) {
 		printf("hackrf_open() failed: %s (%d)\n", hackrf_error_name(r), r);
 		exit(1);
 	}
+	printf("Found HackRF board.\n");
+
+	r = hackrf_board_id_read(dev,&board_id);
+	if (r != HACKRF_SUCCESS) {
+		fprintf(stderr, "hackrf_board_id_read() failed: %s (%d)\n",
+				hackrf_error_name(r), r);
+		exit(1);
+	}
+
+	r = hackrf_version_string_read(dev, &version[0], 255);
+	if (r != HACKRF_SUCCESS) {
+		fprintf(stderr, "hackrf_version_string_read() failed: %s (%d)\n",
+				hackrf_error_name(r), r);
+		exit(1);
+	}
+
+	fprintf(stderr, "HackRF %s with firmware %s initialized\n", hackrf_board_id_name(board_id), version);
+
 #ifndef _WIN32
 	sigact.sa_handler = sighandler;
 	sigemptyset(&sigact.sa_mask);
@@ -942,20 +944,15 @@ int main(int argc, char **argv)
 	optimal_settings(&fm, 0, 0);
 	build_fir(&fm);
 
-	/* Set the tuner gain */
-	if (gain == AUTO_GAIN) {
-		//r = rtlsdr_set_tuner_gain_mode(dev, 0);
-	} else {
-		//r = rtlsdr_set_tuner_gain_mode(dev, 1);
-		r = hackrf_set_vga_gain(dev, gain);
-	}
+	/* Set the tuner VGA gain */
+	r = hackrf_set_vga_gain(dev, gain);
 	if (r != 0) {
 		fprintf(stderr, "WARNING: Failed to set tuner VGA gain.\n");
 	} else {
 		fprintf(stderr, "Tuner VGA gain set to %d dB.\n", gain);
 	}
-	//r = rtlsdr_set_freq_correction(dev, ppm_error);
 
+	/* Set the tuner LNA gain */
 	r = hackrf_set_lna_gain(dev, lna_gain);
 	if (r != 0) {
 		fprintf(stderr, "WARNING: Failed to set tuner LNA gain.\n");
@@ -963,6 +960,7 @@ int main(int argc, char **argv)
 		fprintf(stderr, "Tuner LNA gain set to %d dB.\n", lna_gain);
 	}
 
+	/* Set the tuner amp */
 	r = hackrf_set_amp_enable(dev, tuner_amp);
 	if (r != 0) {
 		fprintf(stderr, "WARNING: Failed to set tuner amp.\n");
@@ -986,35 +984,29 @@ int main(int argc, char **argv)
 		}
 	}
 
-	/* Reset endpoint before we start reading from it (mandatory) */
-	//r = rtlsdr_reset_buffer(dev);
-	//if (r < 0) {
-	//	fprintf(stderr, "WARNING: Failed to reset buffers.\n");}
 
 	pthread_create(&demod_thread, NULL, demod_thread_fn, (void *)(&fm));
+
         hackrf_start_rx(dev, rx_callback, &fm);
-	/*rtlsdr_read_async(dev, rtlsdr_callback, (void *)(&fm),
-			      DEFAULT_ASYNC_BUF_NUMBER,
-			      ACTUAL_BUF_LENGTH);*/
 
 	while (hackrf_is_streaming(dev) && !do_exit) {
 		usleep(5000);
 	}
 
-	if (do_exit) {
-		fprintf(stderr, "\nUser cancel, exiting...\n");}
-	else {
-		fprintf(stderr, "\nLibrary error %d, exiting...\n", r);}
+	if (do_exit)
+		fprintf(stderr, "\nUser cancel, exiting...\n");
+	else
+		fprintf(stderr, "\nLibrary error %d, exiting...\n", r);
+
 	hackrf_stop_rx(dev);
 
 	if (fm.file != stdout)
-	fclose(fm.file);
+		fclose(fm.file);
 
 	hackrf_close(dev);
 	hackrf_exit();
 	free (buffer);
 	return r >= 0 ? r : -r;
-
 }
 
 // vim: tabstop=8:softtabstop=8:shiftwidth=8:noexpandtab
