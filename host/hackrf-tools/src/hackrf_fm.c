@@ -554,7 +554,8 @@ int post_squelch(struct fm_state *fm)
 static void optimal_settings(struct fm_state *fm, int freq, int hopping)
 {
 	int r, capture_freq, capture_rate;
-	fm->downsample = (1000000 / fm->sample_rate) + 1;
+//	fm->downsample = (1000000 / fm->sample_rate) + 1;
+	fm->downsample = (1000000 / fm->sample_rate) + 3;
 	fm->freq_now = freq;
 	capture_rate = fm->downsample * fm->sample_rate;
 	capture_freq = fm->freqs[freq] + capture_rate/4;
