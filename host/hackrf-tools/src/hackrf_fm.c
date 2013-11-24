@@ -61,6 +61,7 @@
 #include "getopt/getopt.h"
 #define usleep(x) Sleep(x/1000)
 #define round(x) (x > 0.0 ? floor(x + 0.5): ceil(x - 0.5))
+#define _USE_MATH_DEFINES
 #endif
 
 #include <pthread.h>
@@ -70,7 +71,6 @@
 #define DEFAULT_VGA_GAIN		24
 
 #define DEFAULT_SAMPLE_RATE		24000
-#define DEFAULT_ASYNC_BUF_NUMBER	4
 #define DEFAULT_BUF_LENGTH		262144
 #define MAXIMUM_OVERSAMPLE		4
 #define MAXIMUM_BUF_LENGTH		(MAXIMUM_OVERSAMPLE * DEFAULT_BUF_LENGTH)
@@ -556,7 +556,7 @@ static void optimal_settings(struct fm_state *fm, int freq, int hopping)
 	int r, capture_freq, capture_rate;
 	fm->downsample = (1000000 / fm->sample_rate) + 1;
 	fm->freq_now = freq;
-	capture_rate = fm->downsample * fm->sample_rate;
+	capture_rate = (fm->downsample * fm->sample_rate);
 	capture_freq = fm->freqs[freq] + capture_rate/4;
 	capture_freq += fm->edge * fm->sample_rate / 2;
 	fm->output_scale = (1<<15) / (128 * fm->downsample);
@@ -616,6 +616,7 @@ void full_demod(struct fm_state *fm)
 		else {
 			hop = 1;}
 	}
+	fprintf(stderr, "Read %d bytes (%d demod)...\r",fm->buf_len,fm->signal2_len);
 	if (fm->post_downsample > 1) {
 		fm->signal2_len = low_pass_simple(fm->signal2, fm->signal2_len, fm->post_downsample);}
 	if (fm->output_rate > 0) {
@@ -632,34 +633,24 @@ void full_demod(struct fm_state *fm)
 		optimal_settings(fm, freq_next, 1);
 		fm->squelch_hits = fm->conseq_squelch + 1;  /* hair trigger */
 		/* wait for settling and flush buffer */
-		usleep(5000);
+		usleep(100);
 		//rtlsdr_read_sync(dev, NULL, 4096, NULL);
 	}
 }
 
-int rx_reads = 0;
-uint bytes = 0;
-
 int rx_callback(hackrf_transfer *transfer)
 {
-	struct fm_state *fm2 = transfer->rx_ctx;
+	struct fm_state *fm = transfer->rx_ctx;
 
 	if (do_exit)
 		return -1;
 
-	if (!fm2)
+	if (!fm)
 		return -1;
 
-
-	rx_reads++;
-
-
-	bytes = (bytes + transfer->valid_length);
-	fprintf(stderr, "Read %d: %d bytes (%d total)...\r",rx_reads,transfer->valid_length, bytes);
-
 	pthread_rwlock_wrlock(&data_rw);
-	memcpy(fm2->buf, transfer->buffer, transfer->valid_length);
-	fm2->buf_len = transfer->valid_length;
+	memcpy(fm->buf, transfer->buffer, transfer->buffer_length);
+	fm->buf_len = transfer->buffer_length;
 	pthread_rwlock_unlock(&data_rw);
 	safe_cond_signal(&data_ready, &data_mutex);
 	return 0;
@@ -667,12 +658,12 @@ int rx_callback(hackrf_transfer *transfer)
 
 static void *demod_thread_fn(void *arg)
 {
-	struct fm_state *fm2 = arg;
+	struct fm_state *fm = arg;
 	while (!do_exit) {
 		safe_cond_wait(&data_ready, &data_mutex);
-		full_demod(fm2);
+		full_demod(fm);
 
-		if (fm2->exit_flag) {
+		if (fm->exit_flag) {
 			do_exit = 1;
 			hackrf_stop_rx(dev);
 		}
@@ -756,7 +747,6 @@ int main(int argc, char **argv)
 	int r, opt, wb_mode = 0;
 	int gain = DEFAULT_VGA_GAIN; // tenths of a dB
 	int lna_gain = DEFAULT_LNA_GAIN;
-	uint8_t *buffer;
 	uint8_t board_id = BOARD_ID_INVALID;
 	char version[255 + 1];
 	int tuner_amp = 0;
@@ -785,7 +775,7 @@ int main(int argc, char **argv)
 			lna_gain = atoi(optarg);
 			break;
 		case 'a':
-			tuner_amp = 1;
+			tuner_amp = atoi(optarg);
 			break;
 		case 'l':
 			fm.squelch_level = (int)atof(optarg);
@@ -887,9 +877,6 @@ int main(int argc, char **argv)
 		filename = argv[optind];
 	}
 
-	ACTUAL_BUF_LENGTH = lcm_post[fm.post_downsample] * DEFAULT_BUF_LENGTH;
-	buffer = malloc(ACTUAL_BUF_LENGTH * sizeof(uint8_t));
-
 	r = hackrf_init();
 	if (r != HACKRF_SUCCESS) {
 		printf("hackrf_init() failed: %s (%d)\n", hackrf_error_name(r), r);
@@ -916,6 +903,7 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
+	ACTUAL_BUF_LENGTH = lcm_post[fm.post_downsample] * DEFAULT_BUF_LENGTH;
 	fprintf(stderr, "HackRF %s with firmware %s initialized\n", hackrf_board_id_name(board_id), version);
 
 #ifndef _WIN32
@@ -990,7 +978,7 @@ int main(int argc, char **argv)
         hackrf_start_rx(dev, rx_callback, &fm);
 
 	while (hackrf_is_streaming(dev) && !do_exit) {
-		usleep(5000);
+		usleep(100);
 	}
 
 	if (do_exit)
@@ -1005,7 +993,6 @@ int main(int argc, char **argv)
 
 	hackrf_close(dev);
 	hackrf_exit();
-	free (buffer);
 	return r >= 0 ? r : -r;
 }
 
