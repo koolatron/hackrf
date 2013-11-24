@@ -65,6 +65,8 @@ endif()
 
 if(MSVC)
 LIST(APPEND TOOLS_LINK_LIBS libgetopt_static)
+else()
+LIST(APPEND TOOLS_LINK_LIBS m)
 endif()
 
 
@@ -75,5 +77,5 @@ target_link_libraries(hackrf_rffc5071 ${TOOLS_LINK_LIBS})
 target_link_libraries(hackrf_spiflash ${TOOLS_LINK_LIBS})
 target_link_libraries(hackrf_cpldjtag ${TOOLS_LINK_LIBS})
 target_link_libraries(hackrf_info ${TOOLS_LINK_LIBS})
-target_link_libraries(hackrf_fm ${TOOLS_LINK_LIBS} m pthread)
-target_link_libraries(hackrf_tcp ${TOOLS_LINK_LIBS} m pthread)
+target_link_libraries(hackrf_tcp ${TOOLS_LINK_LIBS})
+target_link_libraries(hackrf_fm ${TOOLS_LINK_LIBS})

@@ -45,6 +45,20 @@ else()
 include_directories(${libhackrf_SOURCE_DIR}/src)
 endif()
 
+if(MSVC)
+        set(THREADS_USE_PTHREADS_WIN32 true)
+else()
+        add_definitions(-Wall)
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu90")
+
+        INCLUDE(TestBigEndian)
+        TEST_BIG_ENDIAN(BIGENDIAN)
+        if(${BIGENDIAN})
+                 add_definitions(-DHACKRF_BIG_ENDIAN)
+        endif(${BIGENDIAN})
+endif()
+
+include_directories(${THREADS_PTHREADS_INCLUDE_DIR})
 add_subdirectory(src)
 
 ########################################################################

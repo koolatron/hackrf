@@ -34,7 +34,7 @@
 #include <fcntl.h>
 #else
 #include <WinSock2.h>
-#include "getopt/getopt.h"
+#include <getopt.h>
 #endif
 
 #include <pthread.h>
@@ -43,8 +43,8 @@
 
 #ifdef _WIN32
 #pragma comment(lib, "ws2_32.lib")
-
 typedef int socklen_t;
+#define sleep(x) Sleep(x)
 
 #else
 #define closesocket close
@@ -81,7 +81,6 @@ static hackrf_device *dev = NULL;
 int global_numq = 0;
 static struct llist *ll_buffers = 0;
 int llbuf_num=500;
-
 static int do_exit = 0;
 
 void usage(void)
@@ -119,9 +118,13 @@ sighandler(int signum)
 {
 	if (CTRL_C_EVENT == signum) {
 		fprintf(stderr, "Signal caught, exiting!\n");
-		do_exit = 1;
 		//rtlsdr_cancel_async(dev);
 		hackrf_stop_rx(dev);
+		hackrf_close(dev);
+		sleep(1.2);
+		hackrf_init();
+		hackrf_open(&dev);
+		do_exit = 1;
 		return TRUE;
 	}
 	return FALSE;
@@ -131,10 +134,14 @@ static void sighandler(int signum)
 {
 	fprintf(stderr, "Signal caught, exiting!\n");
 	if (!do_exit) {
-      //rtlsdr_cancel_async(dev);
-	hackrf_stop_rx(dev);
-      do_exit = 1;
-    }
+		//rtlsdr_cancel_async(dev);
+		hackrf_stop_rx(dev);
+		hackrf_close(dev);
+		sleep(1.2);
+		hackrf_init();
+		hackrf_open(&dev);
+		do_exit = 1;
+	}
 }
 #endif
 
@@ -398,16 +405,18 @@ int main(int argc, char **argv)
 	struct linger ling = {1,0};
 	SOCKET listensocket;
 	socklen_t rlen;
+	/*  Causes warning on linux, but needed for Windows */
+	u_long blockmode = 1;
 	fd_set readfds;
 	dongle_info_t dongle_info;
 #ifdef _WIN32
 	WSADATA wsd;
-	i = WSAStartup(MAKEWORD(2,2), &wsd);
+	int i = WSAStartup(MAKEWORD(2,2), &wsd);
 #else
 	struct sigaction sigact, sigign;
 #endif
 
-	while ((opt = getopt(argc, argv, "a:p:f:g:s:n:d:")) != -1) {
+	while ((opt = getopt(argc, argv, "a:p:f:g:s:n:d:x")) != -1) {
 		switch (opt) {
 		case 'd':
 			dev_index = atoi(optarg);

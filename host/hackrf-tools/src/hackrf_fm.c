@@ -58,7 +58,7 @@
 #include <Windows.h>
 #include <fcntl.h>
 #include <io.h>
-#include "getopt/getopt.h"
+#include <getopt.h>
 #define usleep(x) Sleep(x/1000)
 #define round(x) (x > 0.0 ? floor(x + 0.5): ceil(x - 0.5))
 #define _USE_MATH_DEFINES
