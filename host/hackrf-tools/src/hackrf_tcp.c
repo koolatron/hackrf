@@ -263,6 +263,33 @@ static void *tcp_worker(void *arg)
 	}
 }
 
+static int set_tuner_amp(hackrf_device *_dev, unsigned int p)
+{
+	int res = 0;
+	res = hackrf_set_amp_enable(_dev, p);
+        return res;
+}
+
+static int set_tuner_gain(hackrf_device *_dev, int g, unsigned int p)
+{
+	int res = 0;
+	if (g >= 1) {
+		res = hackrf_set_lna_gain(_dev, p);
+	} else {
+		res = hackrf_set_vga_gain(_dev, p);
+	}
+        return res;
+}
+
+static int set_tuner_if(hackrf_device *_dev, unsigned int p)
+{
+	int res = 0;
+	res = hackrf_set_if_freq(_dev, p);
+        return res;
+}
+
+
+
 static int set_gain_by_index(hackrf_device *_dev, unsigned int index)
 {
         int res = 0;
@@ -307,7 +334,7 @@ static void *command_worker(void *arg)
 			if(r) {
 				received = recv(s, (char*)&cmd+(sizeof(cmd)-left), left, 0);
 				if(received == SOCKET_ERROR){
-                    perror("comm recv socket error");
+					perror("comm recv socket error");
 					sighandler(0);
 					dead[1]=1;
 					pthread_exit(NULL);
@@ -327,8 +354,8 @@ static void *command_worker(void *arg)
 		}
 		switch(cmd.cmd) {
 		case 0x01:
-			printf("set freq %d\n", ntohl(cmd.param));
-			hackrf_set_freq(dev,ntohl(cmd.param));
+			printf("set freq %ld\n", (uint64_t)ntohl(cmd.param));
+			hackrf_set_freq(dev, (uint64_t)ntohl(cmd.param));
 			break;
 		case 0x02:
 			printf("set sample rate %d\n", ntohl(cmd.param));
@@ -380,19 +407,36 @@ static void *command_worker(void *arg)
 			printf("set tuner gain by index %d\n", ntohl(cmd.param));
 			set_gain_by_index(dev, ntohl(cmd.param));
 			break;
+		/* HackRF TCP Exclusive */
+		case 0xb0:
+			printf("set tuner amp %d\n", ntohl(cmd.param));
+			set_tuner_amp(dev, ntohl(cmd.param));
+			break;
+		case 0xb1:
+			printf("set tuner vga gain %d\n", ntohl(cmd.param));
+			set_tuner_gain(dev, 0, ntohl(cmd.param));
+			break;
+		case 0xb2:
+			printf("set tuner lna gain %d\n", ntohl(cmd.param));
+			set_tuner_gain(dev, 1, ntohl(cmd.param));
+			break;
+		case 0xb3:
+			printf("set intermediate freq %d\n", ntohl(cmd.param));
+			set_tuner_if(dev, ntohl(cmd.param));
+			break;
 		default:
 			break;
 		}
 		cmd.cmd = 0xff;
 	}
 }
-
 int main(int argc, char **argv)
 {
 	int r, opt;
 	char* addr = "127.0.0.1";
 	int port = 1234;
-	uint32_t frequency = 100000000, samp_rate = 2048000;
+	uint64_t frequency = 100000000;
+	int samp_rate = 2048000;
 	struct sockaddr_in local, remote;
 	uint32_t dev_index = 0;
 	int gain = 0;
@@ -422,7 +466,7 @@ int main(int argc, char **argv)
 			dev_index = atoi(optarg);
 			break;
 		case 'f':
-			frequency = (uint32_t)atof(optarg);
+			frequency = (uint64_t)atof(optarg);
 			break;
 		case 'g':
 			gain = (int)(atof(optarg) * 10); /* tenths of a dB */
@@ -496,7 +540,7 @@ int main(int argc, char **argv)
 	if (r < 0)
 		fprintf(stderr, "WARNING: Failed to set center freq.\n");
 	else
-		fprintf(stderr, "Tuned to %i Hz.\n", frequency);
+		fprintf(stderr, "Tuned to %ld Hz.\n", frequency);
 
 	if (0 == gain) {
 		 /* Enable automatic gain */
