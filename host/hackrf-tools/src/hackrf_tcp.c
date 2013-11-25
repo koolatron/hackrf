@@ -316,7 +316,7 @@ struct command{
 #endif
 static void *command_worker(void *arg)
 {
-	int left, received;
+	int left, received, gain;
 	fd_set readfds;
 	struct command cmd={0, 0};
 	struct timeval tv= {1, 0};
@@ -366,9 +366,16 @@ static void *command_worker(void *arg)
 			hackrf_set_amp_enable(dev, ntohl(cmd.param));
 			break;
 		case 0x04:
-			printf("set lna & vga gain %d\n", ntohl(cmd.param));
-			hackrf_set_lna_gain(dev, ntohl(cmd.param));
-			hackrf_set_vga_gain(dev, ntohl(cmd.param));
+			gain = (ntohl(cmd.param) / 10);
+			if (gain < 1 || gain > 100) {
+				gain = 0;
+			}
+			if (gain > 42) {
+				gain = 40;
+			}
+			printf("set lna & vga gain %d\n", gain);
+			hackrf_set_lna_gain(dev, gain);
+			hackrf_set_vga_gain(dev, gain);
 			break;
 		case 0x05:
 			printf("[ignored] set freq correction %d\n", ntohl(cmd.param));
