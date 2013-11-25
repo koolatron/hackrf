@@ -449,12 +449,11 @@ int main(int argc, char **argv)
 	struct linger ling = {1,0};
 	SOCKET listensocket;
 	socklen_t rlen;
-	/*  Causes warning on linux, but needed for Windows */
-	u_long blockmode = 1;
 	fd_set readfds;
 	dongle_info_t dongle_info;
 #ifdef _WIN32
 	WSADATA wsd;
+	u_long blockmode = 1;
 	int i = WSAStartup(MAKEWORD(2,2), &wsd);
 #else
 	struct sigaction sigact, sigign;
