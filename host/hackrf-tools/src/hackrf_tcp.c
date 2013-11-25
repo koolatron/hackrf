@@ -54,7 +54,7 @@ typedef int socklen_t;
 #endif
 
 static SOCKET s;
-int gains[5] = { 8, 16, 24, 32, 40 };
+int gains[6] = { 0, 8, 16, 24, 32, 40 };
 static pthread_t tcp_worker_thread;
 static pthread_t command_thread;
 static pthread_cond_t exit_cond;
@@ -195,7 +195,7 @@ int hackrf_callback(hackrf_transfer *transfer)
 static void *tcp_worker(void *arg)
 {
 	struct llist *curelem,*prev;
-	int bytesleft,bytessent, index;
+	long bytesleft, bytessent, index;
 	struct timeval tv= {1,0};
 	struct timespec ts;
 	struct timeval tp;
@@ -236,7 +236,7 @@ static void *tcp_worker(void *arg)
 				if(r) {
 					bytessent = send(s,  &curelem->data[index], bytesleft, 0);
 					if (bytessent == SOCKET_ERROR) {
-                        perror("worker socket error");
+			                        perror("worker socket error");
 						sighandler(0);
 						dead[0]=1;
 						pthread_exit(NULL);
@@ -293,7 +293,7 @@ static int set_tuner_if(hackrf_device *_dev, unsigned int p)
 static int set_gain_by_index(hackrf_device *_dev, unsigned int index)
 {
         int res = 0;
-        int count = 5;
+        int count = 6;
 
         if (count > 0 && (unsigned int)count > index) {
                 res = hackrf_set_vga_gain(_dev, gains[index]);
@@ -354,8 +354,8 @@ static void *command_worker(void *arg)
 		}
 		switch(cmd.cmd) {
 		case 0x01:
-			printf("set freq %ld\n", (uint64_t)ntohl(cmd.param));
-			hackrf_set_freq(dev, (uint64_t)ntohl(cmd.param));
+			printf("set freq %ld\n", (long)ntohl(cmd.param));
+			hackrf_set_freq(dev, (long)ntohl(cmd.param));
 			break;
 		case 0x02:
 			printf("set sample rate %d\n", ntohl(cmd.param));
@@ -435,7 +435,7 @@ int main(int argc, char **argv)
 	int r, opt;
 	char* addr = "127.0.0.1";
 	int port = 1234;
-	uint64_t frequency = 100000000;
+	long frequency = 100000000;
 	int samp_rate = 2048000;
 	struct sockaddr_in local, remote;
 	uint32_t dev_index = 0;
@@ -466,7 +466,7 @@ int main(int argc, char **argv)
 			dev_index = atoi(optarg);
 			break;
 		case 'f':
-			frequency = (uint64_t)atof(optarg);
+			frequency = (long)atof(optarg);
 			break;
 		case 'g':
 			gain = (int)(atof(optarg) * 10); /* tenths of a dB */
