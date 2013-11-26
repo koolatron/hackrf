@@ -367,11 +367,11 @@ static void *command_worker(void *arg)
 			break;
 		case 0x04:
 			gain = (ntohl(cmd.param) / 10);
-			if (gain > 42) {
-				gain = 40;
-			}
 			if (gain < 1 || gain > 100) {
 				gain = 0;
+			}
+			if (gain > 42) {
+				gain = 40;
 			}
 			printf("set lna & vga gain %d\n", gain);
 			hackrf_set_lna_gain(dev, gain);
