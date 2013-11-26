@@ -316,7 +316,7 @@ struct command{
 #endif
 static void *command_worker(void *arg)
 {
-	int left, received, gain;
+	int left, received;
 	fd_set readfds;
 	struct command cmd={0, 0};
 	struct timeval tv= {1, 0};
@@ -366,6 +366,7 @@ static void *command_worker(void *arg)
 			hackrf_set_amp_enable(dev, ntohl(cmd.param));
 			break;
 		case 0x04:
+<<<<<<< HEAD
 			gain = (ntohl(cmd.param) / 10);
 			if (gain > 42) {
 				gain = 40;
@@ -376,6 +377,11 @@ static void *command_worker(void *arg)
 			printf("set lna & vga gain %d\n", gain);
 			hackrf_set_lna_gain(dev, gain);
 			hackrf_set_vga_gain(dev, gain);
+=======
+			printf("set lna & vga gain %d\n", ntohl(cmd.param));
+			hackrf_set_lna_gain(dev, ntohl(cmd.param));
+			hackrf_set_vga_gain(dev, ntohl(cmd.param));
+>>>>>>> parent of 47c30e5... adjust gain emulation
 			break;
 		case 0x05:
 			printf("[ignored] set freq correction %d\n", ntohl(cmd.param));
