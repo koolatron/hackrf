@@ -367,18 +367,35 @@ static void *command_worker(void *arg)
 			break;
 		case 0x04:
 			gain = (ntohl(cmd.param) / 10);
-			if (gain < 1 || gain > 100) {
-				gain = 0;
-			}
 			if (gain > 42) {
 				gain = 40;
 			}
-			printf("set lna & vga gain %d\n", gain);
+			if (gain < 1 || gain > 100) {
+				gain = 0;
+			}
+			printf("set lna gain %d\n", gain);
 			hackrf_set_lna_gain(dev, gain);
-			hackrf_set_vga_gain(dev, gain);
 			break;
 		case 0x05:
-			printf("[ignored] set freq correction %d\n", ntohl(cmd.param));
+			tmp = ntohl(cmd.param);
+			if (tmp == 99) {
+				printf("set freq correction (%d) -> set tuner amp off \n", ntohl(cmd.param));
+				set_tuner_amp(dev, 0);
+			}
+			else if (tmp == 100) {
+				printf("set freq correction (%d) -> set tuner amp on \n", ntohl(cmd.param));
+				set_tuner_amp(dev, 1);
+			}
+			else {
+				if (tmp > 62) {
+						tmp = 62;
+				}
+				if (tmp < 0) {
+						tmp = 0;
+				}
+				printf("set freq correction -> set vga gain %d\n", tmp);
+				set_tuner_gain(dev, 0, tmp);
+			}
 			//rtlsdr_set_freq_correction(dev, ntohl(cmd.param));
 			break;
 		case 0x06:
