@@ -1,5 +1,6 @@
 /*
  * Copyright 2012 Michael Ossmann
+ * Copyright 2014 Jared Boone <jared@sharebrained.com>
  *
  * This file is part of HackRF.
  *
@@ -49,12 +50,12 @@ extern void rffc5071_reg_write(uint8_t r, uint16_t v);
 extern void rffc5071_regs_commit(void);
 
 /* Set frequency (MHz). */
-extern uint32_t rffc5071_set_frequency(uint16_t mhz);
+extern uint64_t rffc5071_set_frequency(uint16_t mhz);
 
 /* Set up rx only, tx only, or full duplex. Chip should be disabled
  * before _tx, _rx, or _rxtx are called. */
-extern void rffc5071_tx(uint8_t);
-extern void rffc5071_rx(uint8_t);
+extern void rffc5071_tx(void);
+extern void rffc5071_rx(void);
 extern void rffc5071_rxtx(void);
 extern void rffc5071_enable(void);
 extern void rffc5071_disable(void);
