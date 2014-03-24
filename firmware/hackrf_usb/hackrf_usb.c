@@ -43,6 +43,7 @@
 #include "rf_path.h"
 #include "sgpio_isr.h"
 #include "usb_bulk_buffer.h"
+#include "si5351c.h"
  
 static volatile transceiver_mode_t _transceiver_mode = TRANSCEIVER_MODE_OFF;
 
@@ -125,7 +126,13 @@ static const usb_request_handler_fn vendor_request_handler[] = {
 	usb_vendor_request_set_lna_gain,
 	usb_vendor_request_set_vga_gain,
 	usb_vendor_request_set_txvga_gain,
-	usb_vendor_request_set_if_freq,
+	NULL, // was set_if_freq
+#ifdef HACKRF_ONE
+	usb_vendor_request_set_antenna_enable,
+#else
+	NULL,
+#endif
+	usb_vendor_request_set_freq_explicit,
 };
 
 static const uint32_t vendor_request_handler_count =
@@ -204,11 +211,17 @@ int main(void) {
 
 	rf_path_init();
 
+	uint16_t periodic_event_counter = 0;
+
 	unsigned int phase = 0;
 	while(true) {
 		// Check whether we need to initiate a CPLD update
 		if (start_cpld_update)
 			cpld_update();
+
+		if (++periodic_event_counter == 0) {
+			si5351c_activate_best_clock_source();
+		}
 
 		// Set up IN transfer of buffer 0.
 		if ( usb_bulk_buffer_offset >= 16384
