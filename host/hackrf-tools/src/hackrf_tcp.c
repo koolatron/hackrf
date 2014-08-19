@@ -284,8 +284,10 @@ static int set_tuner_gain(hackrf_device *_dev, int g, unsigned int p)
 static int set_tuner_if(hackrf_device *_dev, unsigned int p)
 {
 	int res = 0;
-	res = hackrf_set_if_freq(_dev, p);
-        return res;
+
+    // cheese this -- LO frequency only matters if image reject filter is enabled
+    res = hackrf_set_freq_explicit(_dev, p, 0, RF_PATH_FILTER_BYPASS); 
+    return res;
 }
 
 
